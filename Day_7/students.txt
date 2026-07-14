@@ -1,2 +1,4 @@
 this is a new line of text.
 this is another new line of text.
+this is a new line of text.
+this is another new line of text.
