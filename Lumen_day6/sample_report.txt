@@ -1,0 +1,3 @@
+Sales report
+Revenue: 15000
+Profit: 3000
