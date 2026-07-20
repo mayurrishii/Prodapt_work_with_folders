@@ -80,3 +80,18 @@ def home():
         "Model": job.__dict__,
         "Schema": job_schema.model_dump()
     }
+
+@app.post("/jobs")
+def create_jobs(job: JobCreate):
+    #Convert schema to model
+    job_model = Job(
+        title = job.title,
+        des = job.description,
+        salary = job.salary,
+        company = job.company
+    )
+
+    return {
+        "message": "job Created successfully",
+        "data": job_model.__dict__
+    }
