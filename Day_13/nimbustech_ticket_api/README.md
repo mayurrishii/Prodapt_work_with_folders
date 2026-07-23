@@ -22,3 +22,6 @@ uvicorn ticket_api.main:app --reload
 
 Open `http://127.0.0.1:8000/docs` to test the API routes. Ticket changes are
 kept in memory while the server runs; they do not overwrite the JSON report.
+
+For a simple browser dashboard, keep the API running and open
+`frontend/index.html` in a browser.

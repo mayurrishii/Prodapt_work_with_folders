@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NimbusTech Ticket Dashboard</title>
+  <style>
+    body { background: #f4f7fb; color: #172033; font-family: Arial, sans-serif; margin: 0; }
+    main { margin: 32px auto; max-width: 1100px; padding: 0 20px; }
+    header, .summary, form { background: white; border-radius: 10px; padding: 20px; }
+    header { align-items: center; display: flex; justify-content: space-between; }
+    .summary { display: flex; gap: 24px; margin: 20px 0; }
+    .summary strong { display: block; font-size: 1.6rem; }
+    .controls { display: flex; gap: 12px; margin: 20px 0; }
+    button { background: #276ef1; border: 0; border-radius: 6px; color: white; cursor: pointer; padding: 9px 14px; }
+    button.delete { background: #c93434; }
+    form { display: grid; gap: 12px; grid-template-columns: repeat(5, 1fr); margin-bottom: 20px; }
+    input, select { border: 1px solid #c7d0df; border-radius: 5px; padding: 9px; }
+    table { background: white; border-collapse: collapse; border-radius: 10px; overflow: hidden; width: 100%; }
+    th, td { border-bottom: 1px solid #e4e9f2; padding: 12px; text-align: left; }
+    th { background: #eaf0ff; }
+    .breached { background: #fff0f0; }
+    .badge { background: #c93434; border-radius: 12px; color: white; font-size: .8rem; padding: 4px 8px; }
+    #message { font-weight: bold; min-height: 20px; }
+    .error { color: #b42318; }
+    .success { color: #137333; }
+    @media (max-width: 800px) { form { grid-template-columns: 1fr; } .summary { flex-wrap: wrap; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>NimbusTech Ticket Dashboard</h1>
+        <p>Review and manage support tickets.</p>
+      </div>
+      <button id="refresh-button">Refresh</button>
+    </header>
+
+    <section class="summary" aria-label="Ticket summary">
+      <div>Total tickets<strong id="total-count">-</strong></div>
+      <div>Valid tickets<strong id="valid-count">-</strong></div>
+      <div>Breached SLA<strong id="breached-count">-</strong></div>
+    </section>
+
+    <div class="controls">
+      <button id="filter-button">Show only breached</button>
+    </div>
+
+    <form id="create-form">
+      <input name="customer_name" placeholder="Customer name" required>
+      <input name="category" placeholder="Category" required>
+      <select name="priority_raw" required>
+        <option value="low">Low priority</option>
+        <option value="medium">Medium priority</option>
+        <option value="high">High priority</option>
+        <option value="critical">Critical priority</option>
+      </select>
+      <input name="sla_hours" type="number" min="1" placeholder="SLA hours" required>
+      <select name="status" required>
+        <option value="open">Open</option>
+        <option value="in_progress">In progress</option>
+        <option value="resolved">Resolved</option>
+        <option value="closed">Closed</option>
+      </select>
+      <button type="submit">Create ticket</button>
+    </form>
+
+    <p id="message" role="alert"></p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th><th>Customer</th><th>Category</th><th>Priority</th>
+          <th>SLA</th><th>Status</th><th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="ticket-table-body"></tbody>
+    </table>
+  </main>
+
+  <script>
+    const apiBaseUrl = "http://127.0.0.1:8000";
+    const statuses = ["open", "in_progress", "resolved", "closed"];
+    let showingBreached = false;
+
+    function showMessage(message, isError = false) {
+      const messageElement = document.getElementById("message");
+      messageElement.textContent = message;
+      messageElement.className = isError ? "error" : "success";
+    }
+
+    async function request(path, options = {}) {
+      const response = await fetch(`${apiBaseUrl}${path}`, options);
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || `Request failed (${response.status})`);
+      }
+      return response.json();
+    }
+
+    function renderTickets(tickets) {
+      const tableBody = document.getElementById("ticket-table-body");
+      if (!tickets.length) {
+        tableBody.innerHTML = '<tr><td colspan="7">No tickets to display.</td></tr>';
+        return;
+      }
+
+      tableBody.innerHTML = tickets.map((ticket) => `
+        <tr class="${ticket.sla_breached ? "breached" : ""}">
+          <td>${ticket.ticket_id}</td>
+          <td>${ticket.customer_name}</td>
+          <td>${ticket.category}</td>
+          <td>${ticket.priority_raw} ${ticket.sla_breached ? '<span class="badge">BREACHED</span>' : ""}</td>
+          <td>${ticket.sla_hours} hours</td>
+          <td>
+            <select onchange="updateStatus('${ticket.ticket_id}', this.value)">
+              ${statuses.map((status) => `<option value="${status}" ${status === ticket.status ? "selected" : ""}>${status}</option>`).join("")}
+            </select>
+          </td>
+          <td><button class="delete" onclick="deleteTicket('${ticket.ticket_id}')">Delete</button></td>
+        </tr>
+      `).join("");
+    }
+
+    async function loadDashboard() {
+      try {
+        const ticketPath = showingBreached ? "/tickets/breached" : "/tickets";
+        const [summary, tickets] = await Promise.all([
+          request("/tickets/summary"), request(ticketPath),
+        ]);
+        document.getElementById("total-count").textContent = summary.total_rows;
+        document.getElementById("valid-count").textContent = summary.valid_tickets;
+        document.getElementById("breached-count").textContent = summary.breached_count;
+        renderTickets(tickets);
+        showMessage("");
+      } catch (error) {
+        showMessage(`Could not connect to the API: ${error.message}`, true);
+      }
+    }
+
+    async function updateStatus(ticketId, status) {
+      try {
+        await request(`/tickets/${ticketId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        });
+        showMessage(`Updated ${ticketId}.`);
+        loadDashboard();
+      } catch (error) {
+        showMessage(`Could not update ${ticketId}: ${error.message}`, true);
+      }
+    }
+
+    async function deleteTicket(ticketId) {
+      if (!confirm(`Delete ${ticketId}?`)) return;
+      try {
+        await request(`/tickets/${ticketId}`, { method: "DELETE" });
+        showMessage(`Deleted ${ticketId}.`);
+        loadDashboard();
+      } catch (error) {
+        showMessage(`Could not delete ${ticketId}: ${error.message}`, true);
+      }
+    }
+
+    document.getElementById("create-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      const payload = Object.fromEntries(formData.entries());
+      payload.sla_hours = Number(payload.sla_hours);
+      try {
+        await request("/tickets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        event.target.reset();
+        showMessage("Ticket created.");
+        loadDashboard();
+      } catch (error) {
+        showMessage(`Could not create ticket: ${error.message}`, true);
+      }
+    });
+
+    document.getElementById("filter-button").addEventListener("click", (event) => {
+      showingBreached = !showingBreached;
+      event.target.textContent = showingBreached ? "Show all tickets" : "Show only breached";
+      loadDashboard();
+    });
+
+    document.getElementById("refresh-button").addEventListener("click", loadDashboard);
+    loadDashboard();
+  </script>
+</body>
+</html>
