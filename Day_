@@ -4,7 +4,7 @@
     "movieName": "Inception",
     "showTime": "2026-07-24 18:00",
     "totalSeats": 5,
-    "availableSeats": 0
+    "availableSeats": 5
   },
   {
     "id": 2,
@@ -25,7 +25,7 @@
     "movieName": "Interstellar",
     "showTime": "2026-07-24 21:00",
     "totalSeats": 5,
-    "availableSeats": 4
+    "availableSeats": 5
   },
   {
     "id": 5,

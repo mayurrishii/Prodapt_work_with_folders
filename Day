@@ -75,7 +75,7 @@ function writeState(inventory, bookings, onRollback) {
     atomicWrite(INVENTORY_PATH, INVENTORY_TEMP, inventory);
   } catch (err) {
     const appErr = new InternalError('Failed to write inventory', err.message);
-    if (typeof onRollback === 'function') onRollback(appErr);
+    if (onRollback) onRollback(appErr);
     throw appErr;
   }
 
@@ -91,13 +91,13 @@ function writeState(inventory, bookings, onRollback) {
           'Inventory may be corrupt.',
           `${err.message} | Rollback: ${rollbackErr.message}`
         );
-        if (typeof onRollback === 'function') onRollback(critical);
+        if (onRollback) onRollback(critical);
         throw critical;
       }
     }
 
     const appErr = new InternalError('Booking write failed, inventory rolled back', err.message);
-    if (typeof onRollback === 'function') onRollback(appErr);
+    if (onRollback) onRollback(appErr);
     throw appErr;
   }
 
