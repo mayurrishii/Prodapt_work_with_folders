@@ -1,0 +1,44 @@
+[
+  {
+    "id": 1,
+    "movieName": "Inception",
+    "showTime": "2026-07-24 18:00",
+    "totalSeats": 5,
+    "availableSeats": 0
+  },
+  {
+    "id": 2,
+    "movieName": "Inception",
+    "showTime": "2026-07-24 21:00",
+    "totalSeats": 5,
+    "availableSeats": 5
+  },
+  {
+    "id": 3,
+    "movieName": "Interstellar",
+    "showTime": "2026-07-24 18:00",
+    "totalSeats": 5,
+    "availableSeats": 5
+  },
+  {
+    "id": 4,
+    "movieName": "Interstellar",
+    "showTime": "2026-07-24 21:00",
+    "totalSeats": 5,
+    "availableSeats": 4
+  },
+  {
+    "id": 5,
+    "movieName": "The Dark Knight",
+    "showTime": "2026-07-24 18:00",
+    "totalSeats": 5,
+    "availableSeats": 5
+  },
+  {
+    "id": 6,
+    "movieName": "The Dark Knight",
+    "showTime": "2026-07-24 21:00",
+    "totalSeats": 5,
+    "availableSeats": 5
+  }
+]
