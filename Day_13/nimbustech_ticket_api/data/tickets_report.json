@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-23T14:13:31.490626",
+  "generated_at": "2026-07-27T10:00:01.787115",
   "summary": {
     "total_rows": 8,
     "valid_tickets": 8,
@@ -80,7 +80,7 @@
     },
     {
       "ticket_id": "T-1007",
-      "customer_name": "Stark Industries",
+      "customer_name": "Stark",
       "category": "billing",
       "priority_raw": "high",
       "priority_score": 3,
