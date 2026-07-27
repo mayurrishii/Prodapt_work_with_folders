@@ -1,17 +1,62 @@
-"""FastAPI application for the NimbusTech ticket dashboard."""
+"""
+Application entry point for the NimbusTech Ticket API.
+
+Single responsibility of this file: wire everything else together -
+create the FastAPI app, configure logging/CORS, create the database
+tables, register our custom error handlers, and define the routes.
+Run it with:
+
+    uvicorn ticket_api.main:app --reload
+
+then open http://127.0.0.1:8000/docs
+"""
 
 import logging
+from contextlib import asynccontextmanager
+from typing import Optional
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, Depends, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 
+from . import db_models
 from .config import CORS_ORIGINS
+from .database import engine, get_db
+from .exceptions import TicketNotFoundException
+from . import crud
 from .models import TicketCreate, TicketUpdate
-from .store import TicketStore
+from .schemas import TicketOut, TicketSummary
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+# --- Logging -----------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("ticket_api.main")
 
-app = FastAPI(title="NimbusTech Ticket Triage API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI "lifespan" function: code before `yield` runs once at
+    startup, code after `yield` runs once at shutdown. We use it to
+    create the database tables (if they don't exist yet).
+    """
+    db_models.Base.metadata.create_all(bind=engine)
+    logger.info("NimbusTech Ticket API is starting up.")
+    yield
+    logger.info("NimbusTech Ticket API is shutting down.")
+
+
+app = FastAPI(
+    title="NimbusTech Ticket Triage API",
+    description="A FastAPI + SQLAlchemy + SQLite ticket management API.",
+    version="2.0.0",
+    lifespan=lifespan,
+)
+
+# --- CORS ----------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -19,126 +64,112 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-store = TicketStore()
 
 
-@app.on_event("startup")
-def load_ticket_report():
-    """Load the Module 1 report when the API starts.
-
-    Returns:
-        None
+# --- Custom exception handlers -------------------------------------------
+@app.exception_handler(TicketNotFoundException)
+async def ticket_not_found_handler(request: Request, exc: TicketNotFoundException):
     """
-    store.load_report()
+    Turns our domain-level TicketNotFoundException (raised in crud.py)
+    into a clean 404 JSON response.
+    """
+    return JSONResponse(
+        status_code=404,
+        content={"detail": f"Ticket with id {exc.ticket_id} not found"},
+    )
 
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    """
+    Catch-all safety net: if ANYTHING unexpected goes wrong, we log the
+    real error server-side and return a generic 500 response to the client.
+    """
+    logger.exception(
+        "Unhandled error while processing request: %s %s",
+        request.method,
+        request.url,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
+
+# --- Routes ---------------------------------------------------------------
 
 @app.get("/")
 def read_root():
-    """Return the API health and service name.
-
-    Returns:
-        dict: Basic API status payload.
-    """
+    """Return the API health and service name."""
     return {"status": "ok", "service": "nimbustech-ticket-triage-api"}
 
 
-@app.get("/tickets")
-def list_tickets():
-    """Return all in-memory tickets.
-
-    Returns:
-        list[dict]: All tickets currently loaded by the API.
+@app.get("/tickets", response_model=list[TicketOut])
+def list_tickets(
+    status_filter: Optional[str] = None,
+    priority: Optional[str] = None,
+    category: Optional[str] = None,
+    breached: Optional[bool] = None,
+    limit: int = 100,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
     """
-    return store.tickets
-
-
-@app.get("/tickets/breached")
-def list_breached_tickets():
-    """Return only tickets that have breached their SLA.
-
-    Returns:
-        list[dict]: Current SLA-breached tickets.
+    Return all tickets, with optional filtering by status, priority,
+    category, or SLA breach status.
     """
-    return [ticket for ticket in store.tickets if ticket["sla_breached"]]
+    return crud.get_tickets(
+        db,
+        status=status_filter,
+        priority=priority,
+        category=category,
+        breached=breached,
+        limit=limit,
+        offset=offset,
+    )
 
 
-@app.get("/tickets/summary")
-def get_ticket_summary():
-    """Return summary counts for the current in-memory ticket list.
+@app.get("/tickets/breached", response_model=list[TicketOut])
+def list_breached_tickets(db: Session = Depends(get_db)):
+    """Return only tickets that have breached their SLA."""
+    return crud.get_tickets(db, breached=True)
 
-    Returns:
-        dict: Ticket summary counts and category breakdown.
+
+@app.get("/tickets/summary", response_model=TicketSummary)
+def get_ticket_summary(db: Session = Depends(get_db)):
+    """Return summary counts for tickets."""
+    return crud.get_summary(db)
+
+
+@app.get("/tickets/{ticket_id}", response_model=TicketOut)
+def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
     """
-    return store.get_summary()
+    Return a ticket by its identifier (e.g. T-1001).
 
-
-@app.get("/tickets/{ticket_id}")
-def get_ticket(ticket_id):
-    """Return a ticket by its identifier.
-
-    Args:
-        ticket_id: Identifier of the requested ticket.
-
-    Returns:
-        dict: Requested ticket.
-
-    Raises:
-        HTTPException: If no ticket has the requested identifier.
+    If it doesn't exist, `crud.get_ticket` raises TicketNotFoundException,
+    which main.py's exception handler turns into a clean 404 JSON response.
     """
-    ticket = store.get_ticket(ticket_id)
-    if ticket is None:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    return ticket
+    return crud.get_ticket(db, ticket_id)
 
 
-@app.post("/tickets", status_code=status.HTTP_201_CREATED)
-def create_ticket(ticket_data: TicketCreate):
-    """Create a new in-memory ticket.
-
-    Args:
-        ticket_data: Validated JSON request body.
-
-    Returns:
-        dict: Newly created ticket.
-    """
-    return store.create_ticket(ticket_data)
+@app.post("/tickets", response_model=TicketOut, status_code=status.HTTP_201_CREATED)
+def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)):
+    """Create a new ticket."""
+    return crud.create_ticket(db, ticket_data)
 
 
-@app.put("/tickets/{ticket_id}")
-def update_ticket(ticket_id, ticket_data: TicketUpdate):
-    """Update the status and/or priority of a ticket.
-
-    Args:
-        ticket_id: Identifier of the ticket to update.
-        ticket_data: Validated JSON update body.
-
-    Returns:
-        dict: Updated ticket.
-
-    Raises:
-        HTTPException: If no ticket has the requested identifier.
-    """
-    ticket = store.get_ticket(ticket_id)
-    if ticket is None:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    return store.update_ticket(ticket, ticket_data)
+@app.put("/tickets/{ticket_id}", response_model=TicketOut)
+def update_ticket(
+    ticket_id: str,
+    ticket_data: TicketUpdate,
+    db: Session = Depends(get_db),
+):
+    """Update the status and/or priority of a ticket."""
+    return crud.update_ticket(db, ticket_id, ticket_data)
 
 
-@app.delete("/tickets/{ticket_id}")
-def delete_ticket(ticket_id):
-    """Delete an in-memory ticket.
-
-    Args:
-        ticket_id: Identifier of the ticket to delete.
-
-    Returns:
-        dict: Confirmation of the deleted ticket identifier.
-
-    Raises:
-        HTTPException: If no ticket has the requested identifier.
-    """
-    ticket = store.get_ticket(ticket_id)
-    if ticket is None:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    store.delete_ticket(ticket)
-    return {"message": "Ticket deleted", "ticket_id": ticket_id}
+@app.delete("/tickets/{ticket_id}", status_code=204)
+def delete_ticket(ticket_id: str, db: Session = Depends(get_db)):
+    """Delete a ticket. Returns 204 No Content on success."""
+    crud.delete_ticket(db, ticket_id)
+    return Response(status_code=204)
